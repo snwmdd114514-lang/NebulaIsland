@@ -1,0 +1,2 @@
+# NebulaIsland
+这是一个roblox本地脚本适用于执行器,其功能是显示一个模仿iPhone的灵动岛

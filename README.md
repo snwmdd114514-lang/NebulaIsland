@@ -23,3 +23,9 @@
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/snwmdd114514-lang/NebulaIsland/main/NebulaIsland.lua"))()
+```
+---
+
+## 📖 API 文档
+
+[![查看 API](https://img.shields.io/badge/API-文档-blue?style=for-the-badge&logo=read-the-docs)](https://github.com/snwmdd114514-lang/NebulaIsland/blob/main/api.md)

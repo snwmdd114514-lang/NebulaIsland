@@ -1,10 +1,11 @@
 --[[
-    Apple Dynamic Island UI Library - Fixed Layering & Hierarchy
-    按照指定 API 格式封装：
-    AppleLib.ControlCenterVisible = bool
-    AppleLib.ShowAlert({"标题", "状态", "图标"})
-    AppleLib.Config.a/b/c = 数值
-    AppleLib.Enabled = bool
+    Apple Dynamic Island UI Library V13.5 (Ultimate Fixed)
+    API 格式：
+    AppleLib.ControlCenterVisible = bool (控制开关)
+    AppleLib.ShowAlert({"标题", "状态", "图标"}) (消息提示)
+    AppleLib.Banner(标题, 内容, 图标) (新增：快速通知)
+    AppleLib.Config.a = 高度, .b = 宽度, .c = 透明度
+    AppleLib.Enabled = bool (灵动岛点击锁定)
 ]]
 
 local AppleLib = {
@@ -26,9 +27,11 @@ local Lighting = game:GetService("Lighting")
 
 local guiParent = (gethui and gethui()) or CoreGui
 
--- 内部配置
-local TweenInfoBase = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
-local TweenInfoBounce = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- 动画配置
+local T_Base = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+local T_Bounce = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local T_Fast = TweenInfo.new(0.2, Enum.EasingStyle.Sine)
+
 local ActiveAlertStack = {}
 local CurrentState = "Idle"
 
@@ -39,69 +42,72 @@ local function create(className, properties)
 end
 
 -- ========================================================================
--- [核心渲染层层级修复]
+-- [渲染层级构建 - 解决遮挡问题]
 -- ========================================================================
 
 local MainGui = create("ScreenGui", { 
-    Name = "AppleDynamicIsland_Lib", 
+    Name = "AppleDynamicIsland_V13_5", 
     Parent = guiParent, 
-    ZIndexBehavior = Enum.ZIndexBehavior.Global, -- 关键：使用全局层级管理
-    IgnoreGuiInset = true 
+    ZIndexBehavior = Enum.ZIndexBehavior.Global, -- 全局层级管理
+    IgnoreGuiInset = true,
+    ResetOnSpawn = false
 })
 
 local BackgroundBlur = create("BlurEffect", { Name = "ADI_Blur", Parent = Lighting, Size = 0 })
+
+-- 背景暗层 (ZIndex 500)
 local DarkOverlay = create("TextButton", { 
     Parent = MainGui, Size = UDim2.new(1, 0, 1, 0), 
     BackgroundColor3 = Color3.new(0,0,0), BackgroundTransparency = 1, 
-    Text = "", AutoButtonColor = false, Visible = false, ZIndex = 10 
+    Text = "", AutoButtonColor = false, Visible = false, ZIndex = 500 
 })
 
--- 1. 灵动岛本体 (层级设为 100)
+-- 灵动岛 (ZIndex 1000 - 保证在最前)
 local IslandContainer = create("Frame", { 
     Name = "Island", Parent = MainGui, 
     AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10), 
     Size = UDim2.new(0, 120, 0, 35), BackgroundColor3 = Color3.new(0,0,0), 
-    ClipsDescendants = true, ZIndex = 100 
+    ClipsDescendants = true, ZIndex = 1000 
 })
 local IslandCorner = create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = IslandContainer })
 local IslandScale = create("UIScale", { Parent = IslandContainer })
 
--- 2. 装饰层 (摄像头孔)
+-- 装饰层 (摄像头)
 local CameraHole = create("Frame", { 
     Parent = IslandContainer, AnchorPoint = Vector2.new(1, 0.5), 
     Position = UDim2.new(1, -15, 0.5, 0), Size = UDim2.new(0, 12, 0, 12), 
-    BackgroundColor3 = Color3.fromRGB(15,15,15), ZIndex = 101 
+    BackgroundColor3 = Color3.fromRGB(20,20,20), ZIndex = 1001 
 })
 create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = CameraHole })
 
--- 3. 通知内容容器 (层级必须最高，设为 110)
+-- 通知内容堆栈 (ZIndex 1005)
 local AlertStackContainer = create("ScrollingFrame", { 
     Parent = IslandContainer, Size = UDim2.new(1, 0, 1, 0), 
     BackgroundTransparency = 1, CanvasSize = UDim2.new(0,0,0,0), 
-    ScrollBarThickness = 0, ClipsDescendants = false, ZIndex = 110 
+    ScrollBarThickness = 0, ClipsDescendants = false, ZIndex = 1005 
 })
 create("UIListLayout", { Parent = AlertStackContainer, HorizontalAlignment = "Center", Padding = UDim.new(0, 5) })
 create("UIPadding", { Parent = AlertStackContainer, PaddingTop = UDim.new(0, 8) })
 
--- 4. 控制中心 (层级设为 500)
+-- 控制中心 (ZIndex 2000 - 弹窗始终在灵动岛之上或平行)
 local CC_Container = create("Frame", { 
     Name = "ControlCenter", Parent = MainGui, AnchorPoint = Vector2.new(0.5, 0.5), 
     Position = UDim2.new(0.5, 0, 1.5, 0), Size = UDim2.new(0, 340, 0, 560), 
-    BackgroundTransparency = 1, ZIndex = 500 
+    BackgroundTransparency = 1, ZIndex = 2000 
 })
 
 -- ========================================================================
--- [内部逻辑]
+-- [核心逻辑]
 -- ========================================================================
 
 local function UpdateIslandBase()
     if CurrentState == "Idle" then
-        TweenService:Create(IslandContainer, TweenInfoBase, { 
+        TweenService:Create(IslandContainer, T_Base, { 
             Size = UDim2.new(0, AppleLib.Config.b, 0, AppleLib.Config.a),
             BackgroundTransparency = AppleLib.Config.c
         }):Play()
     else
-        TweenService:Create(IslandContainer, TweenInfoBase, { BackgroundTransparency = AppleLib.Config.c }):Play()
+        TweenService:Create(IslandContainer, T_Base, { BackgroundTransparency = AppleLib.Config.c }):Play()
     end
     IslandCorner.CornerRadius = UDim.new(AppleLib.Config.CornerRadius, 0)
 end
@@ -114,45 +120,39 @@ local function RecalculateIslandSize()
         totalHeight = totalHeight + alert.Height + 5
         if alert.Width > maxWidth then maxWidth = alert.Width end
     end
-    TweenService:Create(IslandContainer, TweenInfoBounce, { Size = UDim2.new(0, maxWidth, 0, totalHeight) }):Play()
-    TweenService:Create(CameraHole, TweenInfoBounce, { Position = UDim2.new(1, -15, 0, AppleLib.Config.a / 2) }):Play()
+    TweenService:Create(IslandContainer, T_Bounce, { Size = UDim2.new(0, maxWidth, 0, totalHeight) }):Play()
+    TweenService:Create(CameraHole, T_Bounce, { Position = UDim2.new(1, -15, 0, AppleLib.Config.a / 2) }):Play()
 end
 
--- [API] 发送消息提示
+-- [API] 表格调用通知
 function AppleLib.ShowAlert(data)
     local titleText = data[1] or "Notice"
     local stateText = data[2] or ""
     local iconId = data[3] or "rbxassetid://10664292213"
     
     CurrentState = "Alerting"
-    local alertFrame = create("Frame", { 
-        Parent = AlertStackContainer, Size = UDim2.new(1, 0, 0, 45), 
-        BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 115 
-    })
-    
-    local icon = create("ImageLabel", { Parent = alertFrame, Position = UDim2.new(0, 15, 0.5, -15), Size = UDim2.new(0, 30, 0, 30), BackgroundTransparency = 1, Image = iconId, ImageTransparency = 1, ZIndex = 116 })
+    local alertFrame = create("Frame", { Parent = AlertStackContainer, Size = UDim2.new(1, 0, 0, 45), BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 1010 })
+    local icon = create("ImageLabel", { Parent = alertFrame, Position = UDim2.new(0, 15, 0.5, -15), Size = UDim2.new(0, 30, 0, 30), BackgroundTransparency = 1, Image = iconId, ImageTransparency = 1, ZIndex = 1011 })
     create("UICorner", {CornerRadius = UDim.new(0.2, 0), Parent = icon})
-    
-    local t = create("TextLabel", { Parent = alertFrame, Position = UDim2.new(0, 55, 0.5, -18), Size = UDim2.new(1, -70, 0, 20), BackgroundTransparency = 1, Text = titleText, TextColor3 = Color3.new(1,1,1), Font = "GothamBold", TextSize = 14, TextXAlignment = "Left", TextTransparency = 1, ZIndex = 116 })
-    local d = create("TextLabel", { Parent = alertFrame, Position = UDim2.new(0, 55, 0.5, 2), Size = UDim2.new(1, -70, 0, 15), BackgroundTransparency = 1, Text = stateText, TextColor3 = Color3.fromRGB(180,180,180), Font = "Gotham", TextSize = 12, TextXAlignment = "Left", TextTransparency = 1, ZIndex = 116 })
+    local t = create("TextLabel", { Parent = alertFrame, Position = UDim2.new(0, 55, 0.5, -18), Size = UDim2.new(1, -70, 0, 20), BackgroundTransparency = 1, Text = titleText, TextColor3 = Color3.new(1,1,1), Font = "GothamBold", TextSize = 14, TextXAlignment = "Left", TextTransparency = 1, ZIndex = 1011 })
+    local d = create("TextLabel", { Parent = alertFrame, Position = UDim2.new(0, 55, 0.5, 2), Size = UDim2.new(1, -70, 0, 15), BackgroundTransparency = 1, Text = stateText, TextColor3 = Color3.fromRGB(180,180,180), Font = "Gotham", TextSize = 12, TextXAlignment = "Left", TextTransparency = 1, ZIndex = 1011 })
 
     table.insert(ActiveAlertStack, { Frame = alertFrame, Width = 260, Height = 45 })
     RecalculateIslandSize()
 
-    -- 延迟淡入，确保在灵动岛展开后显示，防止被盖住
     task.delay(0.1, function()
-        TweenService:Create(icon, TweenInfoBase, { ImageTransparency = 0 }):Play()
-        TweenService:Create(t, TweenInfoBase, { TextTransparency = 0 }):Play()
-        TweenService:Create(d, TweenInfoBase, { TextTransparency = 0 }):Play()
+        TweenService:Create(icon, T_Base, { ImageTransparency = 0 }):Play()
+        TweenService:Create(t, T_Base, { TextTransparency = 0 }):Play()
+        TweenService:Create(d, T_Base, { TextTransparency = 0 }):Play()
     end)
 
     task.delay(3, function()
         if not alertFrame.Parent then return end
-        TweenService:Create(icon, TweenInfoFast, { ImageTransparency = 1 }):Play()
-        TweenService:Create(t, TweenInfoFast, { TextTransparency = 1 }):Play()
-        TweenService:Create(d, TweenInfoFast, { TextTransparency = 1 }):Play()
+        TweenService:Create(icon, T_Fast, { ImageTransparency = 1 }):Play()
+        TweenService:Create(t, T_Fast, { TextTransparency = 1 }):Play()
+        TweenService:Create(d, T_Fast, { TextTransparency = 1 }):Play()
         task.wait(0.2)
-        TweenService:Create(alertFrame, TweenInfoFast, { Size = UDim2.new(1, 0, 0, 0) }):Play()
+        TweenService:Create(alertFrame, T_Fast, { Size = UDim2.new(1, 0, 0, 0) }):Play()
         for i, v in ipairs(ActiveAlertStack) do if v.Frame == alertFrame then table.remove(ActiveAlertStack, i) break end end
         task.wait(0.2)
         alertFrame:Destroy()
@@ -160,27 +160,31 @@ function AppleLib.ShowAlert(data)
     end)
 end
 
--- 控制中心显示/隐藏
-local function ToggleCC(state)
+-- [新增 API] 直接通知函数：AppleLib.Banner(标题, 内容, 图标)
+function AppleLib.Banner(title, desc, icon)
+    AppleLib.ShowAlert({title, desc, icon})
+end
+
+-- [内部控制中心切换逻辑]
+local function SetCCState(state)
     AppleLib._CCVisible = state
     if state then
         DarkOverlay.Visible = true
-        TweenService:Create(BackgroundBlur, TweenInfo.new(0.4), {Size = 10}):Play()
-        TweenService:Create(DarkOverlay, TweenInfo.new(0.4), {BackgroundTransparency = 0.35}):Play()
-        TweenService:Create(CC_Container, TweenInfo.new(0.5, Enum.EasingStyle.Exponential), { Position = UDim2.new(0.5, 0, 0.5, 0) }):Play()
+        TweenService:Create(BackgroundBlur, T_Base, {Size = 10}):Play()
+        TweenService:Create(DarkOverlay, T_Base, {BackgroundTransparency = 0.35}):Play()
+        TweenService:Create(CC_Container, T_Base, { Position = UDim2.new(0.5, 0, 0.5, 0) }):Play()
     else
-        TweenService:Create(BackgroundBlur, TweenInfo.new(0.3), {Size = 0}):Play()
-        TweenService:Create(DarkOverlay, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
+        TweenService:Create(BackgroundBlur, T_Fast, {Size = 0}):Play()
+        TweenService:Create(DarkOverlay, T_Fast, {BackgroundTransparency = 1}):Play()
         TweenService:Create(CC_Container, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.In), { Position = UDim2.new(0.5, 0, 1.5, 0) }):Play()
         task.delay(0.4, function() if not AppleLib._CCVisible then DarkOverlay.Visible = false end end)
     end
 end
 
--- 元表绑定实现对象化属性调用
+-- 元表劫持属性 (实现 xxx.ControlCenterVisible = true/false)
 setmetatable(AppleLib, {
     __newindex = function(t, k, v)
-        if k == "ControlCenterVisible" then ToggleCC(v) 
-        elseif k == "Enabled" then rawset(t, k, v)
+        if k == "ControlCenterVisible" then SetCCState(v) 
         else rawset(t, k, v) end
     end,
     __index = function(t, k)
@@ -197,10 +201,10 @@ setmetatable(AppleLib.Config, {
 })
 
 -- ========================================================================
--- [UI 组件工厂]
+-- [组件工厂]
 -- ========================================================================
 local function createModule(size, pos)
-    local f = create("Frame", { Parent = CC_Container, Size = size, Position = pos, BackgroundColor3 = Color3.fromRGB(30, 30, 35), BackgroundTransparency = 0.25, ZIndex = 510 })
+    local f = create("Frame", { Parent = CC_Container, Size = size, Position = pos, BackgroundColor3 = Color3.fromRGB(30, 30, 35), BackgroundTransparency = 0.2, ZIndex = 2010 })
     create("UICorner", { CornerRadius = UDim.new(0.15, 0), Parent = f })
     return f
 end
@@ -209,33 +213,37 @@ local ToggleBox = createModule(UDim2.new(1, -24, 0, 200), UDim2.new(0, 12, 0, 34
 create("UIListLayout", { Parent = ToggleBox, SortOrder = "LayoutOrder" })
 
 function AppleLib:AddToggle(text, default, callback)
-    local frame = create("Frame", { Parent = ToggleBox, Size = UDim2.new(1, 0, 0, 50), BackgroundTransparency = 1, ZIndex = 520 })
-    create("TextLabel", { Parent = frame, Position = UDim2.new(0, 15, 0, 0), Size = UDim2.new(0.6, 0, 1, 0), BackgroundTransparency = 1, Text = text, TextColor3 = Color3.new(0.9,0.9,0.9), Font = "GothamSemibold", TextSize = 14, TextXAlignment = "Left", ZIndex = 521 })
+    local frame = create("Frame", { Parent = ToggleBox, Size = UDim2.new(1, 0, 0, 50), BackgroundTransparency = 1, ZIndex = 2020 })
+    create("TextLabel", { Parent = frame, Position = UDim2.new(0, 15, 0, 0), Size = UDim2.new(0.6, 0, 1, 0), BackgroundTransparency = 1, Text = text, TextColor3 = Color3.new(0.9,0.9,0.9), Font = "GothamSemibold", TextSize = 14, TextXAlignment = "Left", ZIndex = 2021 })
     
-    local toggleBg = create("TextButton", { Parent = frame, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -15, 0.5, 0), Size = UDim2.new(0, 50, 0, 30), BackgroundColor3 = default and Color3.fromRGB(52, 199, 89) or Color3.fromRGB(80, 80, 85), Text = "", AutoButtonColor = false, ZIndex = 521 })
+    local toggleBg = create("TextButton", { Parent = frame, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -15, 0.5, 0), Size = UDim2.new(0, 50, 0, 30), BackgroundColor3 = default and Color3.fromRGB(52, 199, 89) or Color3.fromRGB(80, 80, 85), Text = "", AutoButtonColor = false, ZIndex = 2021 })
     create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = toggleBg})
     
-    local knob = create("Frame", { Parent = toggleBg, Position = UDim2.new(0, default and 22 or 2, 0.5, -13), Size = UDim2.new(0, 26, 0, 26), BackgroundColor3 = Color3.new(1,1,1), ZIndex = 522 })
+    local knob = create("Frame", { Parent = toggleBg, Position = UDim2.new(0, default and 22 or 2, 0.5, -13), Size = UDim2.new(0, 26, 0, 26), BackgroundColor3 = Color3.new(1,1,1), ZIndex = 2022 })
     create("UICorner", {CornerRadius = UDim.new(1, 0), Parent = knob})
     
     local state = default
     toggleBg.MouseButton1Click:Connect(function()
         state = not state
-        TweenService:Create(toggleBg, TweenInfo.new(0.25), {BackgroundColor3 = state and Color3.fromRGB(52, 199, 89) or Color3.fromRGB(80, 80, 85)}):Play()
+        TweenService:Create(toggleBg, T_Fast, {BackgroundColor3 = state and Color3.fromRGB(52, 199, 89) or Color3.fromRGB(80, 80, 85)}):Play()
         TweenService:Create(knob, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = UDim2.new(0, state and 22 or 2, 0.5, -13)}):Play()
-        AppleLib.ShowAlert({text, state and "已开启" or "已关闭", "rbxassetid://10664292213"})
+        AppleLib.Banner(text, state and "已开启" or "已关闭", "rbxassetid://10664292213")
         callback(state)
     end)
 end
 
--- 基础交互监听
-InteractionButton = create("TextButton", { Parent = IslandContainer, Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", ZIndex = 1000 })
+-- [关闭修复：背景层点击]
+DarkOverlay.MouseButton1Click:Connect(function()
+    AppleLib.ControlCenterVisible = false
+end)
+
+-- [灵动岛点击交互]
+local InteractionButton = create("TextButton", { Parent = IslandContainer, Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", ZIndex = 1100 })
 InteractionButton.MouseButton1Click:Connect(function()
     if AppleLib.Enabled then
         AppleLib.ControlCenterVisible = not AppleLib.ControlCenterVisible
     end
 end)
-DarkOverlay.MouseButton1Click:Connect(function() AppleLib.ControlCenterVisible = false end)
 
 -- 初始化外观
 UpdateIslandBase()
@@ -244,19 +252,15 @@ UpdateIslandBase()
 -- [示例调用代码]
 -- ========================================================================
 
--- 1. 功能属性
-AppleLib.Enabled = true -- 允许点击打开灵动岛
-AppleLib.Config.a = 35  -- 高度
-AppleLib.Config.b = 130 -- 宽度
-AppleLib.Config.c = 0   -- 透明度
+-- 1. 配置
+AppleLib.Config.a = 35
+AppleLib.Config.b = 120
+AppleLib.Enabled = true -- 允许点击
 
--- 2. 添加开关到菜单
-AppleLib:AddToggle("飞行模式 (Fly)", false, function(s) print("Fly Mode:", s) end)
-AppleLib:AddToggle("无敌模式 (God)", false, function(s) print("God Mode:", s) end)
+-- 2. 添加开关
+AppleLib:AddToggle("飞行模式 (Fly)", false, function(s) end)
 
--- 3. 发送堆叠通知测试 (现在不会被遮挡)
-AppleLib.ShowAlert({"系统消息", "脚本加载成功", "rbxassetid://6031068420"})
-task.wait(0.5)
-AppleLib.ShowAlert({"网络连接", "已连接到服务器", "rbxassetid://10664292213"})
+-- 3. 新函数测试：单纯通知
+AppleLib.Banner("系统", "Apple UI 库修复完成", "rbxassetid://6031068420")
 
 return AppleLib

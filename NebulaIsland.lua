@@ -1,5 +1,3 @@
---loadstring(game:HttpGet("https://raw.githubusercontent.com/snwmdd114514-lang/NebulaIsland/main/NebulaIsland.lua"))()
--- 2. 修改配置 (现在会立即生效)
 --[[
     Apple Dynamic Island & Control Center V14.0 (Final Repair)
     核心修复：
@@ -226,20 +224,3 @@ end)
 UpdateIslandBase()
 
 return AppleLib
-AppleLib.Config.a = 40  -- 设置高度
-AppleLib.Config.b = 150 -- 设置宽度
-
--- 3. 发送通知 (现在会显示你自定义的内容，不再有默认干扰)
-AppleLib.ShowAlert({"传送成功", "已到达目的地", "rbxassetid://10664292213"})
-AppleLib.Banner("自定义标题", "这是自定义内容", "rbxassetid://6031068420")
-
--- 4. 控制中心开关
-AppleLib.ControlCenterVisible = true 
-
--- 5. 禁用交互测试
-AppleLib.Enabled = false 
-
--- 6. 添加功能
-AppleLib:AddToggle("无限体力", true, function(state)
-    print("体力状态:", state)
-end)
